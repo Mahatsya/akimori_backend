@@ -1,0 +1,19 @@
+# виртуальное окружение
+venv/
+.env
+.env.*
+*.pyc
+__pycache__/
+
+# локальные базы
+*.sqlite3
+
+# статика/медиа (генерируется)
+staticfiles/
+media/
+
+# фронтовый мусор, если что-то рядом появится
+node_modules/
+dist/
+.nyc_output/
+migrations/
