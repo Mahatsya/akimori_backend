@@ -40,7 +40,7 @@ from kodik.models import (
 # Конфиг по умолчанию (можно переопределить в settings.KODIK_IMPORT)
 # =======================================================
 DEFAULTS = {
-    "TOKEN": "08b3cfcbed59c52f3dcb793b3625f444",   # ← твой токен
+    "TOKEN": "ab83c7000f60d4266448b0507f673163",   # ← твой токен
     "BASE_URL": "https://kodikapi.com/list",
     "LIMIT": 100,
     "TYPES": "anime,anime-serial",  # при желании сузить

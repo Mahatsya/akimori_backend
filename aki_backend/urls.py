@@ -27,8 +27,11 @@ urlpatterns = [
     path("api/", include("kodik.urls")),
     path("api/", include("chats.urls")),
     path("api/", include("craft.urls")),
+    path("api/", include("promo.urls")),
 
     path('tinymce/', include('tinymce.urls')),
     path("tinymce/upload/", tinymce_image_upload, name="tinymce_image_upload"),
     
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+] 
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

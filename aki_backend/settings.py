@@ -12,13 +12,11 @@ SECRET_KEY = os.environ.get(
     "dev-secret-change-me"  # локальный дефолт, в проде обязательно переопределяется
 )
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() == "true"
+DEBUG = True
+CORS_ALLOW_ALL_ORIGINS = True
 
 _raw_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "")
-if DEBUG:
-    ALLOWED_HOSTS = ["*"]
-else:
-    ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(",") if h.strip()] or ["localhost"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "https://dev.mysite.ru:3443"]
 
 # ---------- ПРИЛОЖЕНИЯ ----------
 
@@ -54,6 +52,7 @@ INSTALLED_APPS = [
 
     # сторонние для админки
     "rangefilter",
+    "django_extensions",
     "django_admin_listfilter_dropdown",
     "django_object_actions",
     "django_summernote",
@@ -61,6 +60,7 @@ INSTALLED_APPS = [
 
     "channels",
     "chats",
+    "promo",
     "tinymce",
 ]
 
@@ -100,11 +100,12 @@ ASGI_APPLICATION = "aki_backend.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("DJANGO_DB_NAME", "aki"),
-        "USER": os.environ.get("DJANGO_DB_USER", "aki"),
-        "PASSWORD": os.environ.get("DJANGO_DB_PASSWORD", ""),
-        "HOST": os.environ.get("DJANGO_DB_HOST", "127.0.0.1"),
-        "PORT": os.environ.get("DJANGO_DB_PORT", "5432"),
+        "NAME": "aki_beta",
+        "USER": "postgres",
+        "PASSWORD": "14060514",
+        "HOST": "127.0.0.1",       # не 'localhost', чтобы не лез в SSL/IPv6
+        "PORT": "5432",
+        "OPTIONS": {"sslmode": "disable"},  # сервер без SSL — отключаем требование
     }
 }
 
@@ -132,7 +133,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 # ---------- S3 MEDIA (django-storages) ----------
 
-USE_S3_FOR_MEDIA = os.environ.get("USE_S3_FOR_MEDIA", "True").lower() == "true"
+USE_S3_FOR_MEDIA = os.environ.get("USE_S3_FOR_MEDIA", "False").lower() == "true"
 
 if USE_S3_FOR_MEDIA:
     AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
@@ -200,6 +201,7 @@ else:
     CORS_ALLOWED_ORIGINS = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        'https://akimori.ru',
     ]
 
 _raw_csrf = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
@@ -209,6 +211,7 @@ else:
     CSRF_TRUSTED_ORIGINS = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        'https://akimori.ru',
     ]
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
@@ -232,7 +235,7 @@ KODIK_VIDEO_LINKS_URL = os.getenv(
 KODIK_DEADLINE_HOURS = int(os.getenv("KODIK_DEADLINE_HOURS", "6"))
 
 KODIK_IMPORT = {
-    "TOKEN": os.environ.get("KODIK_TOKEN", ""),
+    "TOKEN": "ab83c7000f60d4266448b0507f673163",
     "BASE_URL": "https://kodikapi.com/list",
     "LIMIT": 100,
     "TYPES": "anime,anime-serial",
@@ -324,8 +327,7 @@ TINYMCE_DEFAULT_CONFIG = {
     """,
 
     "extended_valid_elements": (
-        "iframe[src|frameborder|allowfullscreen|allow|referrerpolicy|width|height],"
-        "script[language|type|src]"
+        "iframe[src|frameborder|allowfullscreen|allow|referrerpolicy|width|height]"
     ),
 
     "autosave_ask_before_unload": True,

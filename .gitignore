@@ -16,4 +16,3 @@ media/
 node_modules/
 dist/
 .nyc_output/
-migrations/

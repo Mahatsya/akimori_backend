@@ -6,11 +6,10 @@ from django.utils import timezone
 
 
 class ItemType(models.TextChoices):
-    AVATAR_STATIC   = "avatar_static", "Аватар (статичный)"
-    AVATAR_ANIM     = "avatar_anim",   "Аватар (аним.)"
-    HEADER_ANIM     = "header_anim",   "Шапка (аним.)"      # по ТЗ — шапка только анимированная
+    AVATAR_ANIM     = "avatar",   "Аватар"
+    HEADER_ANIM     = "header",   "Шапка"
     THEME           = "theme",         "Тема профиля/ридера"
-    AVATAR_FRAME    = "avatar_frame",  "Рамка для аватара"   # новое
+    AVATAR_FRAME    = "avatar_frame",  "Рамка для аватара"
 
 
 class Rarity(models.TextChoices):
@@ -215,7 +214,7 @@ class AppliedCustomization(models.Model):
             raise ValidationError("У пользователя нет такого предмета в инвентаре.")
 
     def clean(self):
-        self._validate_ownership(self.user, self.avatar_item, (ItemType.AVATAR_STATIC, ItemType.AVATAR_ANIM), "avatar")
+        self._validate_ownership(self.user, self.avatar_item, (ItemType.AVATAR_ANIM,), "avatar")
         self._validate_ownership(self.user, self.header_item, (ItemType.HEADER_ANIM,), "header")
         self._validate_ownership(self.user, self.theme_item,  (ItemType.THEME,), "theme")
         self._validate_ownership(self.user, self.frame_item,  (ItemType.AVATAR_FRAME,), "frame")

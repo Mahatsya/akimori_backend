@@ -5,6 +5,7 @@ from .services import ensure_user_wallets
 
 User = get_user_model()
 
+
 @receiver(post_save, sender=User)
 def create_wallets_on_user_create(sender, instance: User, created, **kwargs):
     if created:

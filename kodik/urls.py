@@ -1,6 +1,3 @@
-# coding: utf-8
-from __future__ import annotations
-
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 

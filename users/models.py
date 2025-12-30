@@ -6,7 +6,8 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from datetime import timedelta
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
+
 
 from .leveling import (
     MAX_LEVEL,
@@ -143,16 +144,48 @@ class AvatarMedia(models.Model):
         indexes = [models.Index(fields=["user", "created_at"])]
 
     def clean(self):
+        super().clean()
+        if not self.file:
+            return
+
+        # лимит веса
+        max_bytes = getattr(settings, "AVATAR_MAX_BYTES", 2 * 1024 * 1024)  # 2MB
+        if getattr(self.file, "size", 0) > max_bytes:
+            raise ValidationError(f"Слишком большой файл аватара (макс. {max_bytes} bytes)")
+
+        allowed_formats = set(getattr(settings, "AVATAR_ALLOWED_FORMATS", {"JPEG", "PNG", "WEBP"}))
+        max_side = getattr(settings, "AVATAR_MAX_SIDE_PX", 1024)
+
         try:
+            self.file.seek(0)
             img = Image.open(self.file)
-            animated = getattr(img, "is_animated", False)
-            if not animated and hasattr(img, "n_frames"):
-                animated = img.n_frames > 1
+            img.verify()
+
+            self.file.seek(0)
+            img2 = Image.open(self.file)
+
+            fmt = (img2.format or "").upper()
+            if fmt not in allowed_formats:
+                raise ValidationError("Недопустимый формат изображения аватара")
+
+            w, h = img2.size
+            if w > max_side or h > max_side:
+                raise ValidationError(f"Аватар слишком большой по размеру (макс. сторона {max_side}px)")
+
+            animated = getattr(img2, "is_animated", False) or getattr(img2, "n_frames", 1) > 1
             if animated:
                 self.is_animated = True
                 raise ValidationError("Анимированные аватары загружать нельзя. Используйте покупные.")
-        except Exception:
-            pass
+
+        except ValidationError:
+            raise
+        except (UnidentifiedImageError, OSError):
+            raise ValidationError("Файл не является валидным изображением")
+        finally:
+            try:
+                self.file.seek(0)
+            except Exception:
+                pass
 
     @property
     def url(self):

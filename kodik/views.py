@@ -37,7 +37,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import OrderingFilter
+from rest_framework.filters import OrderingFilter, SearchFilter  # ✅ добавили SearchFilter
 
 from .models import (
     Material,
@@ -85,6 +85,11 @@ class SortAliasOrderingFilter(OrderingFilter):
 
         fields = [f.strip() for f in sort.split(",") if f.strip()]
         return self.remove_invalid_fields(queryset, fields, view, request) or self.get_default_ordering(view)
+
+
+# ✅ SearchFilter, который слушает ?q=... (а не ?search=...)
+class SearchFilterQ(SearchFilter):
+    search_param = "q"
 
 
 # ------------------------- Внешний API Kodik -------------------------
@@ -197,17 +202,29 @@ class MaterialViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MaterialListSerializer
     pagination_class = MaterialPagination
     filterset_class = MaterialFilter
-    filter_backends = [DjangoFilterBackend, SortAliasOrderingFilter]
 
-    # тут перечисляем поля, по которым можно сортировать ?ordering=
+    # ✅ добавили SearchFilterQ (чтобы искало по ?q=...)
+    filter_backends = [DjangoFilterBackend, SortAliasOrderingFilter, SearchFilterQ]
+
+    # ✅ поля поиска (DRF SearchFilter)
+    search_fields = [
+        "title",
+        "title_orig",
+        "other_title",
+        "slug",
+        "extra__anime_title",
+        "extra__title",
+        "extra__title_en",
+    ]
+
     ordering_fields = (
         "primary_date",
         "shiki",
         "aki_rating",
         "aki_votes",
         "views_count",
-        "next_episode_at",  # alias на extra__next_episode_at
-        "aired_at",         # ✨ alias на extra__aired_at
+        "next_episode_at",
+        "aired_at",
     )
     ordering = ["-primary_date", "-pk"]
 
@@ -248,12 +265,11 @@ class MaterialViewSet(viewsets.ReadOnlyModelViewSet):
             aki_rating=F("extra__aki_rating"),
             aki_votes=F("extra__aki_votes"),
             views_count=Coalesce(F("extra__views_count"), Value(0), output_field=IntegerField()),
-            next_episode_at=F("extra__next_episode_at"),  # чтобы сортировать/фильтровать по next_episode_at
-            aired_at=F("extra__aired_at"),                # ✨ чтобы сортировать/фильтровать по aired_at
+            next_episode_at=F("extra__next_episode_at"),
+            aired_at=F("extra__aired_at"),
         )
 
     def _apply_default_ordering(self, qs):
-        # дефолтная сортировка: сначала по дате релиза (nulls_last), потом по id
         return qs.order_by(F("primary_date").desc(nulls_last=True), F("pk").desc(nulls_last=True))
 
     def get_queryset(self):
@@ -291,7 +307,6 @@ class MaterialViewSet(viewsets.ReadOnlyModelViewSet):
             qs = restrict_catalog(qs, self.request)
             return qs
 
-        # LIST
         qs = (
             Material.objects.select_related("extra")
             .only(
@@ -322,8 +337,6 @@ class MaterialViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_serializer_class(self):
         return MaterialDetailSerializer if self.action == "retrieve" else MaterialListSerializer
-
-    # -------- жанры/фасеты --------
 
     @method_decorator(cache_page(300))
     @action(detail=False, methods=["get"], url_path="genres", permission_classes=[AllowAny])
@@ -395,10 +408,6 @@ class MaterialViewSet(viewsets.ReadOnlyModelViewSet):
             }
         )
 
-    # ─────────────────────────────
-    # 🔢 инкремент views_count
-    # POST /api/kodik/materials/<slug>/view/
-    # ─────────────────────────────
     @action(detail=True, methods=["post"], url_path="view")
     def add_view(self, request: Request, slug: str | None = None):
         material: Material = self.get_object()
@@ -431,13 +440,6 @@ class IsAuthorOrReadOnly(permissions.BasePermission):
 
 
 class AkiUserRatingViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
-    """
-    POST   /api/aki/ratings/
-    GET    /api/aki/ratings/me/?material=<id>
-    DELETE /api/aki/ratings/clear/?material=<id>
-    GET    /api/aki/ratings/summary/<id>/
-    """
-
     queryset = AkiUserRating.objects.select_related("material", "user").all()
     serializer_class = AkiUserRatingSerializer
 
@@ -468,20 +470,14 @@ class AkiUserRatingViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     @transaction.atomic
     def create(self, request: Request, *args, **kwargs):
         if not request.user or not request.user.is_authenticated:
-            return Response(
-                {"detail": "Authentication credentials were not provided."},
-                status=401,
-            )
+            return Response({"detail": "Authentication credentials were not provided."}, status=401)
 
         ser = self.get_serializer(data=request.data, context={"request": request})
         ser.is_valid(raise_exception=True)
 
         obj = ser.save()
 
-        agg = AkiUserRating.objects.filter(material=obj.material).aggregate(
-            avg=Avg("score"),
-            votes=Count("id"),
-        )
+        agg = AkiUserRating.objects.filter(material=obj.material).aggregate(avg=Avg("score"), votes=Count("id"))
         avg = float(agg["avg"]) if agg["avg"] is not None else None
         votes = int(agg["votes"] or 0)
 
@@ -498,11 +494,7 @@ class AkiUserRatingViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"], url_path=r"summary/(?P<material_id>[^/]+)")
     def summary(self, request: Request, material_id: str):
         extra, _ = MaterialExtra.objects.get_or_create(material_id=material_id)
-        data = {
-            "material": material_id,
-            "aki_rating": extra.aki_rating,
-            "aki_votes": extra.aki_votes or 0,
-        }
+        data = {"material": material_id, "aki_rating": extra.aki_rating, "aki_votes": extra.aki_votes or 0}
         return Response(AkiRatingSummarySerializer(data).data)
 
 
@@ -512,18 +504,6 @@ class AkiUserRatingViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
 
 
 class MaterialCommentViewSet(viewsets.ModelViewSet):
-    """
-    GET    /api/aki/comments/?material=<id>&parent=<id?>
-    POST   /api/aki/comments/
-    PATCH  /api/aki/comments/{id}/
-    DELETE /api/aki/comments/{id}/
-
-    POST /api/aki/comments/{id}/like/
-    POST /api/aki/comments/{id}/unlike/
-    POST /api/aki/comments/{id}/pin/
-    POST /api/aki/comments/{id}/unpin/
-    """
-
     queryset = MaterialComment.objects.select_related("user").all()
     permission_classes = [IsAuthorOrReadOnly]
     pagination_class = CommentsPagination

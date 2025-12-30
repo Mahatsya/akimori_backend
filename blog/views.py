@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 from datetime import datetime
 
 from django.conf import settings
 from django.db.models import Count
 from django.core.files.storage import default_storage
-from django.core.files.base import ContentFile
 from django.http import JsonResponse, HttpResponseBadRequest
-from django.views.decorators.csrf import csrf_exempt
+from django.core.exceptions import PermissionDenied
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_protect
+
+from PIL import Image, UnidentifiedImageError
 
 from rest_framework import viewsets, permissions
 from rest_framework.pagination import PageNumberPagination
@@ -72,27 +77,60 @@ class TagViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = (permissions.AllowAny,)
 
 
-# ====== TinyMCE image upload (бесплатный, без DRF) ======
+# ====== TinyMCE image upload (закрытый, безопасный) ======
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 
-@csrf_exempt  # если используете cookie+CSRF — уберите exempt и обеспечьте CSRF токен на форме
+@login_required
+@require_POST
+@csrf_protect
 def tinymce_image_upload(request):
-    if request.method != "POST":
-        return HttpResponseBadRequest("Only POST")
+    # Доступ только staff или роли moderator/admin
+    role = getattr(request.user, "role", "")
+    if not (request.user.is_staff or role in ("moderator", "admin")):
+        raise PermissionDenied("Not allowed")
 
     f = request.FILES.get("file")
     if not f:
         return HttpResponseBadRequest("No file")
 
-    name, ext = os.path.splitext(f.name.lower())
+    # лимит веса
+    max_bytes = getattr(settings, "TINYMCE_IMAGE_MAX_BYTES", 5 * 1024 * 1024)  # 5MB
+    if getattr(f, "size", 0) > max_bytes:
+        return HttpResponseBadRequest(f"File too large (max {max_bytes} bytes)")
+
+    # расширение
+    _, ext = os.path.splitext(f.name.lower())
     if ext not in ALLOWED_IMAGE_EXTS:
         return HttpResponseBadRequest("Unsupported file type")
 
+    # проверка: файл реально картинка + лимит на размер по пикселям
+    max_side = getattr(settings, "TINYMCE_IMAGE_MAX_SIDE_PX", 6000)
+    try:
+        f.seek(0)
+        img = Image.open(f)
+        img.verify()
+
+        f.seek(0)
+        img2 = Image.open(f)
+        w, h = img2.size
+        if w > max_side or h > max_side:
+            return HttpResponseBadRequest(f"Image too large (max side {max_side}px)")
+    except (UnidentifiedImageError, OSError):
+        return HttpResponseBadRequest("Invalid image file")
+    finally:
+        try:
+            f.seek(0)
+        except Exception:
+            pass
+
+    # безопасное имя файла (не сохраняем оригинал)
     now = datetime.now()
     subdir = f"tinymce/{now:%Y/%m}"
-    filename = default_storage.get_available_name(os.path.join(subdir, f.name))
-    saved_path = default_storage.save(filename, ContentFile(f.read()))
+    safe_name = f"{uuid4().hex}{ext}"
+    filename = default_storage.get_available_name(os.path.join(subdir, safe_name))
+    saved_path = default_storage.save(filename, f)
+
     file_url = settings.MEDIA_URL + saved_path
     return JsonResponse({"location": file_url})

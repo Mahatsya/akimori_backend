@@ -5,7 +5,7 @@ from django.db import models
 import django_filters as df
 
 from .models import Material
-from .filters_any import AnyFieldFilterSet  # миксин с динамическими not__/orN__ и whitelisting
+from .filters_any import AnyFieldFilterSet
 
 
 _ALLOWED_STATUS = {"anons", "ongoing", "released"}
@@ -13,43 +13,11 @@ _ALLOWED_STATUS = {"anons", "ongoing", "released"}
 
 class MaterialFilter(AnyFieldFilterSet):
     """
-    Алисы и динамические поля:
+    Фильтры каталога (django-filters).
 
-    Поиск/текст:
-      - q=naruto bleach         → токенизированный поиск по title/title_orig/other_title/slug
-
-    Годы (по аннотированному year_effective из primary_date=coalesce(aired/premiere/released)):
-      - year=2025
-      - year_from=2020
-      - year_to=2025
-
-    Даты (конкретно по aired_at — опционально):
-      - aired_from=2024-01-01
-      - aired_to=2025-12-31
-
-    Даты обновления (updated_at):
-      - updated_at_from=2025-01-01
-      - updated_at_to=2025-12-31
-
-    Типы/страны/жанры/студии:
-      - type=anime,anime-serial → type__in
-      - country=JP,US           → production_countries__code__in
-      - genre=romance,isekai    → genres__name/slug icontains (OR внутри списка)
-      - studio=madhouse         → studios__name icontains (OR внутри списка)
-
-    Статусы:
-      - all_status/anime_status/drama_status=anons,ongoing,released → extra__*__in
-
-    Возрастной рейтинг (MPAA):
-      - rating_mpaa=G,PG,PG-13,R-17,R+a
-
-    Динамические параметры (из AnyFieldFilterSet), безопасный белый список:
-      - title__icontains=...
-      - extra__anime_status=...
-      - genres__slug__in=a,b
-      - year__range=2010..2020
-      - not__lgbt=true
-      - or1__title__icontains=...&or1__other_title__icontains=... (OR-группа)
+    ВАЖНО:
+    - Поиск по названию теперь делается через DRF SearchFilter (в views.py) по параметру ?q=...
+    - Поэтому здесь НЕТ q=df.CharFilter(...) и НЕТ filter_q(...)
     """
 
     # --- Алиасы для года по year_effective (а не по «сырому» year) ---
@@ -64,9 +32,6 @@ class MaterialFilter(AnyFieldFilterSet):
     # --- Диапазон по updated_at (для «за сегодня» / «за неделю») ---
     updated_at_from = df.DateFilter(field_name="updated_at", lookup_expr="gte")
     updated_at_to = df.DateFilter(field_name="updated_at", lookup_expr="lte")
-
-    # --- Текстовый поиск ---
-    q = df.CharFilter(method="filter_q")
 
     # --- Таксономии и простые алиасы ---
     type = df.CharFilter(method="filter_type")
@@ -85,6 +50,9 @@ class MaterialFilter(AnyFieldFilterSet):
     class Meta:
         model = Material
         fields = []
+
+    # ✅ чтобы динамический AnyFieldFilterSet не трогал эти ключи
+    DYN_RESERVED_KEYS = ("page", "per_page", "ordering", "sort", "page_size", "q", "search")
 
     # Разрешённые поля для динамического миксина
     DYN_ALLOWED_FIELDS = [
@@ -120,21 +88,6 @@ class MaterialFilter(AnyFieldFilterSet):
     @staticmethod
     def _split_list(value: str) -> list[str]:
         return [part.strip() for part in (value or "").split(",") if part.strip()]
-
-    # --------------- Текстовый поиск ---------------
-    def filter_q(self, qs, name, value):
-        v = (value or "").strip()
-        if not v:
-            return qs
-        tokens = [t for t in v.split() if t]
-        for t in tokens:
-            qs = qs.filter(
-                models.Q(title__icontains=t)
-                | models.Q(title_orig__icontains=t)
-                | models.Q(other_title__icontains=t)
-                | models.Q(slug__icontains=t)
-            )
-        return qs
 
     # --------------- Тип/страна/жанр/студия ---------------
     def filter_type(self, qs, name, value):
@@ -187,7 +140,6 @@ class MaterialFilter(AnyFieldFilterSet):
         return self._status_in(qs, "extra__drama_status", value)
 
     # --------------- Годы по year_effective ---------------
-    # Эти методы опираются на аннотацию year_effective (см. _annotate_common в views.py)
     def filter_year_effective(self, qs, name, value):
         if value in (None, ""):
             return qs

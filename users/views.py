@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.db import transaction
+from django.core.exceptions import ValidationError
 
 from .serializers import (
     UserPublicSerializer,
@@ -237,27 +238,33 @@ class AvatarUploadView(APIView):
     def post(self, request):
         file = request.FILES.get("file")
         if not file:
-            return Response({"detail":"file is required (jpg/png/webp)"},
+            return Response({"detail": "file is required (jpg/png/webp)"},
                             status=http_status.HTTP_400_BAD_REQUEST)
 
         media = AvatarMedia(user=request.user, file=file)
         try:
             media.full_clean()
-        except Exception as e:
-            return Response({"detail": str(e)}, status=http_status.HTTP_400_BAD_REQUEST)
+        except ValidationError as e:
+            return Response({"detail": e.messages}, status=http_status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"detail": "Upload error"}, status=http_status.HTTP_400_BAD_REQUEST)
+
         media.save()
 
         profile, _ = Profile.objects.get_or_create(user=request.user)
         profile.avatar = media.file
-        profile.save(update_fields=["avatar","updated_at"])
+        profile.save(update_fields=["avatar", "updated_at"])
 
         applied, _ = AppliedCustomization.objects.get_or_create(user=request.user)
         if applied.avatar_item_id:
             applied.avatar_item = None
-            applied.save(update_fields=["avatar_item","updated_at"])
+            applied.save(update_fields=["avatar_item", "updated_at"])
 
-        return Response(AvatarMediaSerializer(media, context={"request": request}).data,
-                        status=http_status.HTTP_201_CREATED)
+        return Response(
+            AvatarMediaSerializer(media, context={"request": request}).data,
+            status=http_status.HTTP_201_CREATED
+        )
+
 
 class AvatarSelectView(APIView):
     permission_classes = [permissions.IsAuthenticated]

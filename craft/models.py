@@ -32,7 +32,7 @@ class HeaderMaterialContent(models.Model):
 
     poster = models.ImageField(
         upload_to=header_poster_upload_to,
-        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp", "gif"])],
         verbose_name="Постер для шапки",
         help_text="Крупное изображение для фоновой шапки.",
     )
